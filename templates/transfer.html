@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Transfer</h2>
+<p>Balance: {{ user["balance"] }}</p>
+
+<form method="post">
+  <label>To username</label><br/>
+  <input name="to_username" /><br/><br/>
+
+  <label>Amount</label><br/>
+  <input name="amount" /><br/><br/>
+
+  <button type="submit">Send</button>
+</form>
+{% endblock %}

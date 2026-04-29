@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Profile</h2>
+
+<p><b>User:</b> {{ user["username"] }}</p>
+<p><b>Balance:</b> {{ user["balance"] }}</p>
+
+<h3>Bio</h3>
+<form method="post">
+  <textarea name="bio" rows="4" cols="60">{{ user["bio"] }}</textarea><br/>
+  <button type="submit">Save bio</button>
+</form>
+
+<p style="margin-top:20px;">
+  <a href="{{ url_for('transfer') }}">Make a transfer</a>
+</p>
+{% endblock %}
