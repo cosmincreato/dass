@@ -2,7 +2,6 @@ from datetime import datetime, timezone
 import sqlite3
 
 from flask import Flask, render_template, request, redirect, url_for, session, flash, abort
-from werkzeug.security import generate_password_hash, check_password_hash
 
 from db import get_db, close_db, init_db
 
@@ -46,14 +45,13 @@ def register():
             flash("Email și parola sunt obligatorii.")
             return render_template("register.html")
 
-        pw_hash = generate_password_hash(password)
         created_at = datetime.now(timezone.utc).isoformat()
 
         db = get_db()
         try:
             db.execute(
                 "INSERT INTO users (email, password_hash, created_at) VALUES (?, ?, ?)",
-                (email, pw_hash, created_at),
+                (email, password, created_at),
             )
             db.commit()
         except sqlite3.IntegrityError as e:
