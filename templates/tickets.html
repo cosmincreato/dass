@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Tickets</h2>
+
+<h3>Create New Ticket</h3>
+<form method="post" style="margin-bottom: 30px; border: 1px solid #ccc; padding: 15px;">
+  <label>Title:</label><br/>
+  <input name="title" required /><br/><br/>
+
+  <label>Description:</label><br/>
+  <textarea name="description" rows="4" cols="60" required></textarea><br/><br/>
+
+  <label>Severity:</label><br/>
+  <select name="severity" required>
+    <option value="">-- Select --</option>
+    <option value="LOW">LOW</option>
+    <option value="MED">MED</option>
+    <option value="HIGH">HIGH</option>
+  </select><br/><br/>
+
+  <button type="submit">Create Ticket</button>
+</form>
+
+<h3>Your Tickets</h3>
+{% if tickets %}
+<table border="1" style="width: 100%; border-collapse: collapse;">
+  <tr style="background-color: #f0f0f0;">
+    <th style="padding: 8px;">ID</th>
+    <th style="padding: 8px;">Title</th>
+    <th style="padding: 8px;">Severity</th>
+    <th style="padding: 8px;">Status</th>
+    <th style="padding: 8px;">Created</th>
+    <th style="padding: 8px;">Updated</th>
+    <th style="padding: 8px;">Action</th>
+  </tr>
+  {% for ticket in tickets %}
+  <tr>
+    <td style="padding: 8px;">{{ ticket["id"] }}</td>
+    <td style="padding: 8px;">{{ ticket["title"] }}</td>
+    <td style="padding: 8px;">{{ ticket["severity"] }}</td>
+    <td style="padding: 8px;">{{ ticket["status"] }}</td>
+    <td style="padding: 8px;">{{ ticket["created_at"][:10] }}</td>
+    <td style="padding: 8px;">{{ ticket["updated_at"][:10] }}</td>
+    <td style="padding: 8px;">
+      <a href="{{ url_for('ticket_detail', ticket_id=ticket['id']) }}">View</a>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p>No tickets yet.</p>
+{% endif %}
+
+<p style="margin-top: 20px;">
+  <a href="{{ url_for('profile') }}">Back to profile</a>
+</p>
+{% endblock %}

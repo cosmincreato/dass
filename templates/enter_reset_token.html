@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Enter Reset Token</h2>
+
+<p>A password reset token has been sent to <strong>{{ email }}</strong></p>
+<p style="color: #666; font-size: 0.95em;">Check your email for the token and enter it below.</p>
+
+<form method="post">
+  <label>Reset Token:</label><br/>
+  <input name="token" type="text" required placeholder="Enter the token from your email" style="width: 100%; max-width: 400px; padding: 8px;"/><br/><br/>
+  <button type="submit">Verify Token</button>
+</form>
+
+<p style="margin-top: 20px;">
+  <a href="{{ url_for('login') }}">Back to login</a>
+</p>
+{% endblock %}

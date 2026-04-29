@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Transfer</h2>
+
+<form method="post">
+  <label>To Email</label><br/>
+  <input name="to_email" type="email" /><br/><br/>
+
+  <label>Amount</label><br/>
+  <input name="amount" type="number" /><br/><br/>
+
+  <button type="submit">Send</button>
+</form>
+{% endblock %}
