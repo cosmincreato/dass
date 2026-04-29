@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import sqlite3
 
 from flask import Flask, render_template, request, redirect, url_for, session, flash, abort
@@ -7,6 +7,11 @@ from db import get_db, close_db, init_db
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "dev-only-change-me"
+
+app.config["SESSION_COOKIE_HTTPONLY"] = False 
+app.config["SESSION_COOKIE_SECURE"] = False 
+app.config["SESSION_COOKIE_SAMESITE"] = None 
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=100)
 
 @app.cli.command("init-db")
 def init_db_command():
@@ -92,6 +97,7 @@ def login():
             return render_template("login.html")
 
         session.clear()
+        session.permanent = True
         session["user_id"] = user["id"]
         flash(f"Logged in as: {user['email']} (DEMO INSECURE)")
         return redirect(url_for("profile"))
