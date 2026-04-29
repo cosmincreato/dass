@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Password Reset Token</h2>
+
+<p>A password reset token has been generated for <strong>{{ email }}</strong></p>
+
+<div style="background-color: #f0f0f0; padding: 15px; border: 1px solid #ddd; border-radius: 4px; margin: 20px 0;">
+  <p><strong>Your Reset Token:</strong></p>
+  <p style="font-family: monospace; background: white; padding: 10px; border-radius: 3px; word-break: break-all;">
+    {{ token }}
+  </p>
+</div>
+
+<p>You can now use this token to reset your password.</p>
+
+<p style="margin-top: 20px;">
+  <a href="{{ url_for('reset_password', token=token) }}" style="padding: 10px 20px; background: #007bff; color: white; text-decoration: none; border-radius: 4px;">
+    Reset Password Now
+  </a>
+  &nbsp; or &nbsp;
+  <a href="{{ url_for('login') }}">Back to Login</a>
+</p>
+{% endblock %}

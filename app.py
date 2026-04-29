@@ -118,22 +118,50 @@ def forgot_password():
         user = db.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
         
         if not user:
-            # INSECURE: Still show message (information disclosure)
-            flash("If an account exists with that email, a reset link has been sent.")
+            flash("A reset link has been sent.")
             return render_template("forgot_password.html")
         
-        # INSECURE: Predictable token based on user ID (easy to brute force)
-        token = f"reset_{user['id']}_token"
+        token = user["email"]
         db.execute(
             "UPDATE users SET password_reset_token = ? WHERE id = ?",
             (token, user["id"]),
         )
         db.commit()
+        print(f"Token: {token}")
         
-        flash(f"Reset link: /reset-password/{token}")
-        return render_template("forgot_password.html")
+        session["reset_email"] = email
+        return redirect(url_for("enter_reset_token"))
     
     return render_template("forgot_password.html")
+
+@app.route("/enter-reset-token", methods=["GET", "POST"])
+def enter_reset_token():
+    email = session.get("reset_email")
+    
+    if not email:
+        flash("Session expired. Please start over.")
+        return redirect(url_for("forgot_password"))
+    
+    if request.method == "POST":
+        token = (request.form.get("token") or "").strip()
+        
+        if not token:
+            flash("Token is required.")
+            return render_template("enter_reset_token.html", email=email)
+        
+        db = get_db()
+        user = db.execute(
+            "SELECT * FROM users WHERE password_reset_token = ?", (token,)
+        ).fetchone()
+        
+        if not user:
+            flash("Invalid token.")
+            return render_template("enter_reset_token.html", email=email)
+        
+        session["reset_token"] = token
+        return redirect(url_for("reset_password", token=token))
+    
+    return render_template("enter_reset_token.html", email=email)
 
 @app.route("/reset-password/<token>", methods=["GET", "POST"])
 def reset_password(token):
@@ -142,7 +170,6 @@ def reset_password(token):
         "SELECT * FROM users WHERE password_reset_token = ?", (token,)
     ).fetchone()
     
-    # INSECURE: Token is reusable and never expires
     if not user:
         flash("Invalid or expired reset token.")
         return redirect(url_for("login"))
@@ -154,7 +181,6 @@ def reset_password(token):
             flash("Password is required.")
             return render_template("reset_password.html", token=token)
         
-        # INSECURE: Password stored in plain text, token not invalidated
         db.execute(
             "UPDATE users SET password_hash = ? WHERE id = ?",
             (new_password, user["id"]),
