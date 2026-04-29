@@ -42,7 +42,7 @@ def register():
         password = request.form.get("password") or ""
 
         if not email or not password:
-            flash("Email și parola sunt obligatorii.")
+            flash("Email and password are required.")
             return render_template("register.html")
 
         created_at = datetime.now(timezone.utc).isoformat()
@@ -56,13 +56,13 @@ def register():
             db.commit()
         except sqlite3.IntegrityError as e:
             # de obicei UNIQUE constraint failed: users.email
-            flash(f"Eroare integritate DB: {e}")
+            flash(f"Database integrity error: {e}")
             return render_template("register.html")
         except Exception as e:
-            flash(f"Eroare neașteptată: {e}")
+            flash(f"Unexpected error: {e}")
             return render_template("register.html")
 
-        flash("Cont creat. Te poți autentifica.")
+        flash("Account created. You can now log in.")
         return redirect(url_for("login"))
 
     return render_template("register.html")
@@ -80,16 +80,20 @@ def login():
         user = db.execute(query).fetchone()
 
         if not user:
-            flash("Credențiale invalide.")
+            flash("User does not exist.")
+            return render_template("login.html")
+
+        if user["password_hash"] != password:
+            flash("Incorrect password.")
             return render_template("login.html")
 
         if user["locked"]:
-            flash("Contul este blocat.")
+            flash("Account is locked.")
             return render_template("login.html")
 
         session.clear()
         session["user_id"] = user["id"]
-        flash(f"Logat ca: {user['email']} (DEMO INSECURE)")
+        flash(f"Logged in as: {user['email']} (DEMO INSECURE)")
         return redirect(url_for("profile"))
 
     return render_template("login.html")
@@ -121,11 +125,11 @@ def tickets():
         severity = (request.form.get("severity") or "").strip()
 
         if not title or not description or not severity:
-            flash("Titlu, descriere și severitate sunt obligatorii.")
+            flash("Title, description, and severity are required.")
             return render_template("tickets.html", user=user, tickets=[])
 
         if severity not in ["LOW", "MED", "HIGH"]:
-            flash("Severitate invalida.")
+            flash("Invalid severity.")
             return render_template("tickets.html", user=user, tickets=[])
 
         now = datetime.now(timezone.utc).isoformat()
@@ -134,7 +138,7 @@ def tickets():
             (title, description, severity, user["id"], now, now),
         )
         db.commit()
-        flash("Ticket creat cu succes.")
+        flash("Ticket created successfully.")
         return redirect(url_for("tickets"))
 
     rows = db.execute(
@@ -156,7 +160,7 @@ def ticket_detail(ticket_id):
     if request.method == "POST":
         new_status = (request.form.get("status") or "").strip()
         if new_status not in ["OPEN", "IN_PROGRESS", "RESOLVED"]:
-            flash("Status invalid.")
+            flash("Invalid status.")
             return render_template("ticket_detail.html", ticket=ticket, user=user)
 
         now = datetime.now(timezone.utc).isoformat()
@@ -165,7 +169,7 @@ def ticket_detail(ticket_id):
             (new_status, now, ticket_id),
         )
         db.commit()
-        flash("Ticket actualizat.")
+        flash("Ticket updated.")
         return redirect(url_for("ticket_detail", ticket_id=ticket_id))
 
     return render_template("ticket_detail.html", ticket=ticket, user=user)
