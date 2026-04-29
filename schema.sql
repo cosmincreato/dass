@@ -7,7 +7,8 @@ CREATE TABLE users (
   password_hash TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'USER' CHECK(role IN ('USER', 'MANAGER')),
   created_at TEXT NOT NULL,
-  locked INTEGER NOT NULL DEFAULT 0
+  locked INTEGER NOT NULL DEFAULT 0,
+  password_reset_token TEXT DEFAULT NULL
 );
 
 CREATE TABLE tickets (

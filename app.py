@@ -109,6 +109,63 @@ def logout():
     session.clear()
     return redirect(url_for("login"))
 
+@app.route("/forgot-password", methods=["GET", "POST"])
+def forgot_password():
+    if request.method == "POST":
+        email = (request.form.get("email") or "").strip()
+        
+        db = get_db()
+        user = db.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+        
+        if not user:
+            # INSECURE: Still show message (information disclosure)
+            flash("If an account exists with that email, a reset link has been sent.")
+            return render_template("forgot_password.html")
+        
+        # INSECURE: Predictable token based on user ID (easy to brute force)
+        token = f"reset_{user['id']}_token"
+        db.execute(
+            "UPDATE users SET password_reset_token = ? WHERE id = ?",
+            (token, user["id"]),
+        )
+        db.commit()
+        
+        flash(f"Reset link: /reset-password/{token}")
+        return render_template("forgot_password.html")
+    
+    return render_template("forgot_password.html")
+
+@app.route("/reset-password/<token>", methods=["GET", "POST"])
+def reset_password(token):
+    db = get_db()
+    user = db.execute(
+        "SELECT * FROM users WHERE password_reset_token = ?", (token,)
+    ).fetchone()
+    
+    # INSECURE: Token is reusable and never expires
+    if not user:
+        flash("Invalid or expired reset token.")
+        return redirect(url_for("login"))
+    
+    if request.method == "POST":
+        new_password = request.form.get("password") or ""
+        
+        if not new_password:
+            flash("Password is required.")
+            return render_template("reset_password.html", token=token)
+        
+        # INSECURE: Password stored in plain text, token not invalidated
+        db.execute(
+            "UPDATE users SET password_hash = ? WHERE id = ?",
+            (new_password, user["id"]),
+        )
+        db.commit()
+        
+        flash("Password reset successfully. You can now log in.")
+        return redirect(url_for("login"))
+    
+    return render_template("reset_password.html", token=token)
+
 @app.route("/profile", methods=["GET", "POST"])
 def profile():
     login_required()
