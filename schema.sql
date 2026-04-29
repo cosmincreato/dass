@@ -1,20 +1,23 @@
 DROP TABLE IF EXISTS users;
-DROP TABLE IF EXISTS transfers;
+DROP TABLE IF EXISTS tickets;
 
 CREATE TABLE users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  username TEXT UNIQUE NOT NULL,
+  email TEXT UNIQUE NOT NULL,
   password_hash TEXT NOT NULL,
-  bio TEXT DEFAULT '',
-  balance INTEGER NOT NULL DEFAULT 100
+  role TEXT NOT NULL DEFAULT 'USER' CHECK(role IN ('USER', 'MANAGER')),
+  created_at TEXT NOT NULL,
+  locked INTEGER NOT NULL DEFAULT 0
 );
 
-CREATE TABLE transfers (
+CREATE TABLE tickets (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  from_user_id INTEGER NOT NULL,
-  to_user_id INTEGER NOT NULL,
-  amount INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL,
+  severity TEXT NOT NULL CHECK(severity IN ('LOW', 'MED', 'HIGH')),
+  status TEXT NOT NULL DEFAULT 'OPEN' CHECK(status IN ('OPEN', 'IN_PROGRESS', 'RESOLVED')),
+  owner_id INTEGER NOT NULL,
   created_at TEXT NOT NULL,
-  FOREIGN KEY(from_user_id) REFERENCES users(id),
-  FOREIGN KEY(to_user_id) REFERENCES users(id)
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY(owner_id) REFERENCES users(id)
 );

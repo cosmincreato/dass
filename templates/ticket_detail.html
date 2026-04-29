@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Ticket #{{ ticket["id"] }}</h2>
+
+<p><b>Title:</b> {{ ticket["title"] }}</p>
+<p><b>Description:</b></p>
+<div style="background-color: #f9f9f9; padding: 10px; border-left: 3px solid #ddd;">
+  {{ ticket["description"] }}
+</div>
+
+<p><b>Severity:</b> 
+  <span style="
+    padding: 3px 8px; 
+    border-radius: 3px; 
+    {% if ticket['severity'] == 'HIGH' %}background-color: #ff6b6b; color: white;{% elif ticket['severity'] == 'MED' %}background-color: #ffc107; color: black;{% else %}background-color: #28a745; color: white;{% endif %}
+  ">
+    {{ ticket["severity"] }}
+  </span>
+</p>
+
+<p><b>Status:</b> {{ ticket["status"] }}</p>
+<p><b>Created:</b> {{ ticket["created_at"] }}</p>
+<p><b>Updated:</b> {{ ticket["updated_at"] }}</p>
+
+<h3>Update Status</h3>
+<form method="post">
+  <label>New Status:</label><br/>
+  <select name="status" required>
+    <option value="OPEN" {% if ticket['status'] == 'OPEN' %}selected{% endif %}>OPEN</option>
+    <option value="IN_PROGRESS" {% if ticket['status'] == 'IN_PROGRESS' %}selected{% endif %}>IN_PROGRESS</option>
+    <option value="RESOLVED" {% if ticket['status'] == 'RESOLVED' %}selected{% endif %}>RESOLVED</option>
+  </select><br/><br/>
+  <button type="submit">Update</button>
+</form>
+
+<p style="margin-top: 20px;">
+  <a href="{{ url_for('tickets') }}">Back to tickets</a>
+</p>
+{% endblock %}
