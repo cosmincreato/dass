@@ -11,7 +11,9 @@ CREATE TABLE users (
     locked INTEGER NOT NULL DEFAULT 0,
     locked_until TEXT DEFAULT NULL,
     failed_login_attempts INTEGER NOT NULL DEFAULT 0,
-    password_reset_token TEXT DEFAULT NULL
+    password_reset_token TEXT DEFAULT NULL,
+    password_reset_token_expires_at TEXT DEFAULT NULL,
+    password_reset_token_used INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE tickets (

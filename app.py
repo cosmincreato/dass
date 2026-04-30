@@ -2,6 +2,7 @@ from datetime import datetime, timezone, timedelta
 import sqlite3
 import re
 import bcrypt
+import secrets
 
 from flask import Flask, render_template, request, redirect, url_for, session, flash, abort
 
@@ -105,6 +106,10 @@ def reset_login_attempts(email, db):
     )
     db.commit()
 
+def generate_reset_token():
+    """Generate a secure random reset token."""
+    return secrets.token_urlsafe(32)
+
 @app.get("/")
 def home():
     user = current_user()
@@ -207,13 +212,15 @@ def forgot_password():
             flash("A reset link has been sent.")
             return render_template("forgot_password.html")
         
-        token = user["email"]
+        token = generate_reset_token()
+        expires_at = (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat()
+        
         db.execute(
-            "UPDATE users SET password_reset_token = ? WHERE id = ?",
-            (token, user["id"]),
+            "UPDATE users SET password_reset_token = ?, password_reset_token_expires_at = ?, password_reset_token_used = 0 WHERE id = ?",
+            (token, expires_at, user["id"]),
         )
         db.commit()
-        print(f"Token: {token}")
+        print(f"Reset Token: {token}")
         
         session["reset_email"] = email
         return redirect(url_for("enter_reset_token"))
@@ -237,11 +244,21 @@ def enter_reset_token():
         
         db = get_db()
         user = db.execute(
-            "SELECT * FROM users WHERE password_reset_token = ?", (token,)
+            "SELECT * FROM users WHERE password_reset_token = ? AND email = ?", (token, email)
         ).fetchone()
         
         if not user:
             flash("Invalid token.")
+            return render_template("enter_reset_token.html", email=email)
+        
+        if user["password_reset_token_expires_at"]:
+            expires_at = datetime.fromisoformat(user["password_reset_token_expires_at"]).replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) > expires_at:
+                flash("Token has expired.")
+                return render_template("enter_reset_token.html", email=email)
+        
+        if user["password_reset_token_used"]:
+            flash("Token has already been used.")
             return render_template("enter_reset_token.html", email=email)
         
         session["reset_token"] = token
@@ -260,6 +277,16 @@ def reset_password(token):
         flash("Invalid or expired reset token.")
         return redirect(url_for("login"))
     
+    if user["password_reset_token_expires_at"]:
+        expires_at = datetime.fromisoformat(user["password_reset_token_expires_at"]).replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) > expires_at:
+            flash("Reset token has expired.")
+            return redirect(url_for("forgot_password"))
+    
+    if user["password_reset_token_used"]:
+        flash("This reset link has already been used.")
+        return redirect(url_for("login"))
+    
     if request.method == "POST":
         new_password = request.form.get("password") or ""
         
@@ -267,9 +294,14 @@ def reset_password(token):
             flash("Password is required.")
             return render_template("reset_password.html", token=token)
         
+        is_valid, error_msg = validate_password(new_password)
+        if not is_valid:
+            flash(error_msg)
+            return render_template("reset_password.html", token=token)
+        
         password_hash = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
         db.execute(
-            "UPDATE users SET password_hash = ? WHERE id = ?",
+            "UPDATE users SET password_hash = ?, password_reset_token_used = 1 WHERE id = ?",
             (password_hash, user["id"]),
         )
         db.commit()
