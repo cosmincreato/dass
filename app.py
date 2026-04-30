@@ -1,5 +1,7 @@
 from datetime import datetime, timezone, timedelta
 import sqlite3
+import re
+import bcrypt
 
 from flask import Flask, render_template, request, redirect, url_for, session, flash, abort
 
@@ -33,6 +35,28 @@ def login_required():
     if not session.get("user_id"):
         abort(401)
 
+def validate_password(password):
+    """
+    Validate password strength.
+    Returns (is_valid, error_message) tuple.
+    """
+    if len(password) < 8:
+        return False, "Invalid password."
+    
+    if not re.search(r'[A-Z]', password):
+        return False, "Invalid password."
+    
+    if not re.search(r'[a-z]', password):
+        return False, "Invalid password."
+    
+    if not re.search(r'\d', password):
+        return False, "Invalid password."
+    
+    if not re.search(r'[!@#$%^&*()_+\-=\[\]{};:\'",.<>?/\\|`~]', password):
+        return False, "Invalid password."
+    
+    return True, None
+
 @app.get("/")
 def home():
     user = current_user()
@@ -50,13 +74,20 @@ def register():
             flash("Email and password are required.")
             return render_template("register.html")
 
+        # Validate password strength
+        is_valid, error_msg = validate_password(password)
+        if not is_valid:
+            flash(error_msg)
+            return render_template("register.html")
+
         created_at = datetime.now(timezone.utc).isoformat()
+        password_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
         db = get_db()
         try:
             db.execute(
                 "INSERT INTO users (email, password_hash, created_at) VALUES (?, ?, ?)",
-                (email, password, created_at),
+                (email, password_hash, created_at),
             )
             db.commit()
         except sqlite3.IntegrityError as e:
@@ -88,7 +119,7 @@ def login():
             flash("User does not exist.")
             return render_template("login.html")
 
-        if user["password_hash"] != password:
+        if not bcrypt.checkpw(password.encode('utf-8'), user["password_hash"].encode('utf-8')):
             flash("Incorrect password.")
             return render_template("login.html")
 
@@ -181,9 +212,10 @@ def reset_password(token):
             flash("Password is required.")
             return render_template("reset_password.html", token=token)
         
+        password_hash = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
         db.execute(
             "UPDATE users SET password_hash = ? WHERE id = ?",
-            (new_password, user["id"]),
+            (password_hash, user["id"]),
         )
         db.commit()
         
