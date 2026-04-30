@@ -167,9 +167,7 @@ def login():
             flash("Too many failed login attempts. Please try again later.")
             return render_template("login.html")
 
-        query = f"SELECT * FROM users WHERE email = '{email}'"
-        print("LOGIN QUERY:", query)
-        user = db.execute(query).fetchone()
+        user = db.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
 
         if not user:
             record_failed_login(email, db)
