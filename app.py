@@ -57,6 +57,54 @@ def validate_password(password):
     
     return True, None
 
+def is_login_rate_limited(email, db):
+    """Check if an email is currently rate limited."""
+    user = db.execute("SELECT locked, locked_until FROM users WHERE email = ?", (email,)).fetchone()
+    
+    if not user or not user["locked"]:
+        return False
+    
+    if user["locked_until"]:
+        if datetime.fromisoformat(user["locked_until"]).replace(tzinfo=timezone.utc) > datetime.now(timezone.utc):
+            return True
+        else:
+            db.execute("UPDATE users SET locked = 0, locked_until = NULL WHERE email = ?", (email,))
+            db.commit()
+            return False
+    
+    return False
+
+def record_failed_login(email, db):
+    """Record a failed login attempt and lock account if necessary."""
+    user = db.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()
+    
+    if not user:
+        return
+    
+    current_attempts = db.execute("SELECT failed_login_attempts FROM users WHERE id = ?", (user["id"],)).fetchone()
+    attempts = (current_attempts["failed_login_attempts"] or 0) + 1 if current_attempts else 1
+    
+    if attempts >= 5:
+        locked_until = datetime.now(timezone.utc) + timedelta(minutes=30)
+        db.execute(
+            "UPDATE users SET locked = 1, locked_until = ?, failed_login_attempts = ? WHERE id = ?",
+            (locked_until.isoformat(), attempts, user["id"]),
+        )
+    else:
+        db.execute(
+            "UPDATE users SET failed_login_attempts = ? WHERE id = ?",
+            (attempts, user["id"]),
+        )
+    db.commit()
+
+def reset_login_attempts(email, db):
+    """Reset login attempts after successful login."""
+    db.execute(
+        "UPDATE users SET failed_login_attempts = 0, locked = 0, locked_until = NULL WHERE email = ?",
+        (email,),
+    )
+    db.commit()
+
 @app.get("/")
 def home():
     user = current_user()
@@ -74,7 +122,6 @@ def register():
             flash("Email and password are required.")
             return render_template("register.html")
 
-        # Validate password strength
         is_valid, error_msg = validate_password(password)
         if not is_valid:
             flash(error_msg)
@@ -111,22 +158,30 @@ def login():
 
         db = get_db()
 
+        if is_login_rate_limited(email, db):
+            flash("Too many failed login attempts. Please try again later.")
+            return render_template("login.html")
+
         query = f"SELECT * FROM users WHERE email = '{email}'"
         print("LOGIN QUERY:", query)
         user = db.execute(query).fetchone()
 
         if not user:
-            flash("User does not exist.")
+            record_failed_login(email, db)
+            flash("Invalid email or password.")
             return render_template("login.html")
 
         if not bcrypt.checkpw(password.encode('utf-8'), user["password_hash"].encode('utf-8')):
-            flash("Incorrect password.")
+            record_failed_login(email, db)
+            flash("Invalid email or password.")
             return render_template("login.html")
 
         if user["locked"]:
             flash("Account is locked.")
             return render_template("login.html")
 
+        reset_login_attempts(email, db)
+        
         session.clear()
         session.permanent = True
         session["user_id"] = user["id"]
