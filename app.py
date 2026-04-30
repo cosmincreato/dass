@@ -84,6 +84,7 @@ def record_failed_login(email, db):
     
     current_attempts = db.execute("SELECT failed_login_attempts FROM users WHERE id = ?", (user["id"],)).fetchone()
     attempts = (current_attempts["failed_login_attempts"] or 0) + 1 if current_attempts else 1
+    log_audit(user["id"], "LOGIN_FAILED", "USER", user["id"], db)
     
     if attempts >= 5:
         locked_until = datetime.now(timezone.utc) + timedelta(minutes=30)
@@ -91,12 +92,14 @@ def record_failed_login(email, db):
             "UPDATE users SET locked = 1, locked_until = ?, failed_login_attempts = ? WHERE id = ?",
             (locked_until.isoformat(), attempts, user["id"]),
         )
+        db.commit()
+        log_audit(user["id"], "ACCOUNT_LOCKED", "USER", user["id"], db)
     else:
         db.execute(
             "UPDATE users SET failed_login_attempts = ? WHERE id = ?",
             (attempts, user["id"]),
         )
-    db.commit()
+        db.commit()
 
 def reset_login_attempts(email, db):
     """Reset login attempts after successful login."""
@@ -109,6 +112,17 @@ def reset_login_attempts(email, db):
 def generate_reset_token():
     """Generate a secure random reset token."""
     return secrets.token_urlsafe(32)
+
+def log_audit(user_id, action, resource, resource_id, db):
+    """Log an audit event."""
+    ip_address = request.remote_addr
+    timestamp = datetime.now(timezone.utc).isoformat()
+    
+    db.execute(
+        "INSERT INTO audit_logs (user_id, action, resource, resource_id, timestamp, ip_address) VALUES (?, ?, ?, ?, ?, ?)",
+        (user_id, action, resource, resource_id, timestamp, ip_address),
+    )
+    db.commit()
 
 @app.get("/")
 def home():
@@ -188,6 +202,7 @@ def login():
         session.clear()
         session.permanent = True
         session["user_id"] = user["id"]
+        log_audit(user["id"], "LOGIN_SUCCESS", "USER", user["id"], db)
         flash(f"Logged in as: {user['email']} (DEMO INSECURE)")
         return redirect(url_for("profile"))
 
@@ -195,6 +210,10 @@ def login():
 
 @app.post("/logout")
 def logout():
+    user = current_user()
+    if user:
+        db = get_db()
+        log_audit(user["id"], "LOGOUT", "USER", user["id"], db)
     session.clear()
     return redirect(url_for("login"))
 
@@ -303,6 +322,7 @@ def reset_password(token):
             (password_hash, user["id"]),
         )
         db.commit()
+        log_audit(user["id"], "PASSWORD_RESET", "USER", user["id"], db)
         
         flash("Password reset successfully. You can now log in.")
         return redirect(url_for("login"))
@@ -339,11 +359,13 @@ def tickets():
             return render_template("tickets.html", user=user, tickets=[])
 
         now = datetime.now(timezone.utc).isoformat()
-        db.execute(
+        cursor = db.execute(
             "INSERT INTO tickets (title, description, severity, owner_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
             (title, description, severity, user["id"], now, now),
         )
         db.commit()
+        ticket_id = cursor.lastrowid
+        log_audit(user["id"], "TICKET_CREATE", "TICKET", ticket_id, db)
         flash("Ticket created successfully.")
         return redirect(url_for("tickets"))
 
@@ -375,6 +397,7 @@ def ticket_detail(ticket_id):
             (new_status, now, ticket_id),
         )
         db.commit()
+        log_audit(user["id"], "TICKET_UPDATE", "TICKET", ticket_id, db)
         flash("Ticket updated.")
         return redirect(url_for("ticket_detail", ticket_id=ticket_id))
 

@@ -2,6 +2,8 @@ DROP TABLE IF EXISTS users;
 
 DROP TABLE IF EXISTS tickets;
 
+DROP TABLE IF EXISTS audit_logs;
+
 CREATE TABLE users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     email TEXT UNIQUE NOT NULL,
@@ -34,4 +36,16 @@ CREATE TABLE tickets (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (owner_id) REFERENCES users (id)
+);
+
+CREATE TABLE audit_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    action TEXT NOT NULL,
+    resource TEXT NOT NULL,
+    resource_id INTEGER,
+    timestamp TEXT NOT NULL,
+    ip_address TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users (id),
+    FOREIGN KEY (resource_id) REFERENCES tickets (id)
 );
