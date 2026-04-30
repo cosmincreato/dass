@@ -10,10 +10,10 @@ from db import get_db, close_db, init_db
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "dev-only-change-me"
 
-app.config["SESSION_COOKIE_HTTPONLY"] = False 
-app.config["SESSION_COOKIE_SECURE"] = False 
-app.config["SESSION_COOKIE_SAMESITE"] = None 
-app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=100)
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SECURE"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=1)
 
 @app.cli.command("init-db")
 def init_db_command():
