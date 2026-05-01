@@ -1,5 +1,8 @@
 from datetime import datetime, timezone, timedelta
 import sqlite3
+import re
+import bcrypt
+import secrets
 
 from flask import Flask, render_template, request, redirect, url_for, session, flash, abort
 
@@ -8,10 +11,10 @@ from db import get_db, close_db, init_db
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "dev-only-change-me"
 
-app.config["SESSION_COOKIE_HTTPONLY"] = False 
-app.config["SESSION_COOKIE_SECURE"] = False 
-app.config["SESSION_COOKIE_SAMESITE"] = None 
-app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=100)
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SECURE"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=1)
 
 @app.cli.command("init-db")
 def init_db_command():
@@ -33,6 +36,94 @@ def login_required():
     if not session.get("user_id"):
         abort(401)
 
+def validate_password(password):
+    """
+    Validate password strength.
+    Returns (is_valid, error_message) tuple.
+    """
+    if len(password) < 8:
+        return False, "Invalid password."
+    
+    if not re.search(r'[A-Z]', password):
+        return False, "Invalid password."
+    
+    if not re.search(r'[a-z]', password):
+        return False, "Invalid password."
+    
+    if not re.search(r'\d', password):
+        return False, "Invalid password."
+    
+    if not re.search(r'[!@#$%^&*()_+\-=\[\]{};:\'",.<>?/\\|`~]', password):
+        return False, "Invalid password."
+    
+    return True, None
+
+def is_login_rate_limited(email, db):
+    """Check if an email is currently rate limited."""
+    user = db.execute("SELECT locked, locked_until FROM users WHERE email = ?", (email,)).fetchone()
+    
+    if not user or not user["locked"]:
+        return False
+    
+    if user["locked_until"]:
+        if datetime.fromisoformat(user["locked_until"]).replace(tzinfo=timezone.utc) > datetime.now(timezone.utc):
+            return True
+        else:
+            db.execute("UPDATE users SET locked = 0, locked_until = NULL WHERE email = ?", (email,))
+            db.commit()
+            return False
+    
+    return False
+
+def record_failed_login(email, db):
+    """Record a failed login attempt and lock account if necessary."""
+    user = db.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()
+    
+    if not user:
+        return
+    
+    current_attempts = db.execute("SELECT failed_login_attempts FROM users WHERE id = ?", (user["id"],)).fetchone()
+    attempts = (current_attempts["failed_login_attempts"] or 0) + 1 if current_attempts else 1
+    log_audit(user["id"], "LOGIN_FAILED", "USER", user["id"], db)
+    
+    if attempts >= 5:
+        locked_until = datetime.now(timezone.utc) + timedelta(minutes=30)
+        db.execute(
+            "UPDATE users SET locked = 1, locked_until = ?, failed_login_attempts = ? WHERE id = ?",
+            (locked_until.isoformat(), attempts, user["id"]),
+        )
+        db.commit()
+        log_audit(user["id"], "ACCOUNT_LOCKED", "USER", user["id"], db)
+    else:
+        db.execute(
+            "UPDATE users SET failed_login_attempts = ? WHERE id = ?",
+            (attempts, user["id"]),
+        )
+        db.commit()
+
+def reset_login_attempts(email, db):
+    """Reset login attempts after successful login."""
+    db.execute(
+        "UPDATE users SET failed_login_attempts = 0, locked = 0, locked_until = NULL WHERE email = ?",
+        (email,),
+    )
+    db.commit()
+
+def generate_reset_token():
+    """Generate a secure random reset token."""
+    return secrets.token_urlsafe(32)
+
+def log_audit(user_id, action, resource, resource_id, db):
+    """Log an audit event."""
+    ip_address = request.remote_addr
+    timestamp = datetime.now(timezone.utc).isoformat()
+    
+    db.execute(
+        "INSERT INTO audit_logs (user_id, action, resource, resource_id, timestamp, ip_address) VALUES (?, ?, ?, ?, ?, ?)",
+        (user_id, action, resource, resource_id, timestamp, ip_address),
+    )
+    db.commit()
+
 @app.get("/")
 def home():
     user = current_user()
@@ -50,13 +141,19 @@ def register():
             flash("Email and password are required.")
             return render_template("register.html")
 
+        is_valid, error_msg = validate_password(password)
+        if not is_valid:
+            flash(error_msg)
+            return render_template("register.html")
+
         created_at = datetime.now(timezone.utc).isoformat()
+        password_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
         db = get_db()
         try:
             db.execute(
                 "INSERT INTO users (email, password_hash, created_at) VALUES (?, ?, ?)",
-                (email, password, created_at),
+                (email, password_hash, created_at),
             )
             db.commit()
         except sqlite3.IntegrityError as e:
@@ -80,25 +177,32 @@ def login():
 
         db = get_db()
 
-        query = f"SELECT * FROM users WHERE email = '{email}'"
-        print("LOGIN QUERY:", query)
-        user = db.execute(query).fetchone()
-
-        if not user:
-            flash("User does not exist.")
+        if is_login_rate_limited(email, db):
+            flash("Too many failed login attempts. Please try again later.")
             return render_template("login.html")
 
-        if user["password_hash"] != password:
-            flash("Incorrect password.")
+        user = db.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+
+        if not user:
+            record_failed_login(email, db)
+            flash("Invalid email or password.")
+            return render_template("login.html")
+
+        if not bcrypt.checkpw(password.encode('utf-8'), user["password_hash"].encode('utf-8')):
+            record_failed_login(email, db)
+            flash("Invalid email or password.")
             return render_template("login.html")
 
         if user["locked"]:
             flash("Account is locked.")
             return render_template("login.html")
 
+        reset_login_attempts(email, db)
+        
         session.clear()
         session.permanent = True
         session["user_id"] = user["id"]
+        log_audit(user["id"], "LOGIN_SUCCESS", "USER", user["id"], db)
         flash(f"Logged in as: {user['email']} (DEMO INSECURE)")
         return redirect(url_for("profile"))
 
@@ -106,6 +210,10 @@ def login():
 
 @app.post("/logout")
 def logout():
+    user = current_user()
+    if user:
+        db = get_db()
+        log_audit(user["id"], "LOGOUT", "USER", user["id"], db)
     session.clear()
     return redirect(url_for("login"))
 
@@ -121,13 +229,15 @@ def forgot_password():
             flash("A reset link has been sent.")
             return render_template("forgot_password.html")
         
-        token = user["email"]
+        token = generate_reset_token()
+        expires_at = (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat()
+        
         db.execute(
-            "UPDATE users SET password_reset_token = ? WHERE id = ?",
-            (token, user["id"]),
+            "UPDATE users SET password_reset_token = ?, password_reset_token_expires_at = ?, password_reset_token_used = 0 WHERE id = ?",
+            (token, expires_at, user["id"]),
         )
         db.commit()
-        print(f"Token: {token}")
+        print(f"Reset Token: {token}")
         
         session["reset_email"] = email
         return redirect(url_for("enter_reset_token"))
@@ -151,11 +261,21 @@ def enter_reset_token():
         
         db = get_db()
         user = db.execute(
-            "SELECT * FROM users WHERE password_reset_token = ?", (token,)
+            "SELECT * FROM users WHERE password_reset_token = ? AND email = ?", (token, email)
         ).fetchone()
         
         if not user:
             flash("Invalid token.")
+            return render_template("enter_reset_token.html", email=email)
+        
+        if user["password_reset_token_expires_at"]:
+            expires_at = datetime.fromisoformat(user["password_reset_token_expires_at"]).replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) > expires_at:
+                flash("Token has expired.")
+                return render_template("enter_reset_token.html", email=email)
+        
+        if user["password_reset_token_used"]:
+            flash("Token has already been used.")
             return render_template("enter_reset_token.html", email=email)
         
         session["reset_token"] = token
@@ -174,6 +294,16 @@ def reset_password(token):
         flash("Invalid or expired reset token.")
         return redirect(url_for("login"))
     
+    if user["password_reset_token_expires_at"]:
+        expires_at = datetime.fromisoformat(user["password_reset_token_expires_at"]).replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) > expires_at:
+            flash("Reset token has expired.")
+            return redirect(url_for("forgot_password"))
+    
+    if user["password_reset_token_used"]:
+        flash("This reset link has already been used.")
+        return redirect(url_for("login"))
+    
     if request.method == "POST":
         new_password = request.form.get("password") or ""
         
@@ -181,11 +311,18 @@ def reset_password(token):
             flash("Password is required.")
             return render_template("reset_password.html", token=token)
         
+        is_valid, error_msg = validate_password(new_password)
+        if not is_valid:
+            flash(error_msg)
+            return render_template("reset_password.html", token=token)
+        
+        password_hash = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
         db.execute(
-            "UPDATE users SET password_hash = ? WHERE id = ?",
-            (new_password, user["id"]),
+            "UPDATE users SET password_hash = ?, password_reset_token_used = 1 WHERE id = ?",
+            (password_hash, user["id"]),
         )
         db.commit()
+        log_audit(user["id"], "PASSWORD_RESET", "USER", user["id"], db)
         
         flash("Password reset successfully. You can now log in.")
         return redirect(url_for("login"))
@@ -222,11 +359,13 @@ def tickets():
             return render_template("tickets.html", user=user, tickets=[])
 
         now = datetime.now(timezone.utc).isoformat()
-        db.execute(
+        cursor = db.execute(
             "INSERT INTO tickets (title, description, severity, owner_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
             (title, description, severity, user["id"], now, now),
         )
         db.commit()
+        ticket_id = cursor.lastrowid
+        log_audit(user["id"], "TICKET_CREATE", "TICKET", ticket_id, db)
         flash("Ticket created successfully.")
         return redirect(url_for("tickets"))
 
@@ -258,6 +397,7 @@ def ticket_detail(ticket_id):
             (new_status, now, ticket_id),
         )
         db.commit()
+        log_audit(user["id"], "TICKET_UPDATE", "TICKET", ticket_id, db)
         flash("Ticket updated.")
         return redirect(url_for("ticket_detail", ticket_id=ticket_id))
 
